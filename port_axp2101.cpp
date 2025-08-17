@@ -17,7 +17,7 @@ static XPowersPMU PMU;
 static i2c_master_dev_handle_t s_pmu_i2c_dev = nullptr;
 static bool s_pmu_ready = false;
 static TaskHandle_t s_pmu_mon_task = nullptr;
-static uint32_t s_pmu_poll_ms = 250;
+static uint32_t s_pmu_poll_ms = 500;
 static bsp_power_event_cb_t s_evt_cb = nullptr;
 static void *s_evt_cb_user = nullptr;
 
@@ -64,28 +64,27 @@ extern "C" int pmu_register_write_byte(uint8_t devAddr, uint8_t regAddr, uint8_t
     if (pmu_i2c_dev_init() != ESP_OK) {
         return -1;
     }
-    uint8_t tmp[1 + 32];
-    if (len > 32) {
-        len = 32;
-    }
-    tmp[0] = regAddr;
-    if (len > 0 && data != nullptr) {
-        memcpy(&tmp[1], data, len);
-    }
-    esp_err_t err = i2c_master_transmit(s_pmu_i2c_dev, tmp, 1 + len, 1000);
+    
+    uint8_t *buffer = (uint8_t *)malloc(len + 1);
+    if (!buffer) return -1;
+    buffer[0] = regAddr;
+    memcpy(&buffer[1], data, len);
+
+    esp_err_t err = i2c_master_transmit(s_pmu_i2c_dev, buffer, 1 + len, 1000);
+    free(buffer);
     return (err == ESP_OK) ? 0 : -1;
 }
 
 static esp_err_t pmu_configure_defaults()
 {
-    // Turn off unused power channels first
-    /*PMU.disableDC2();
+    // Turn off not use power channel
+    PMU.disableDC2();
     PMU.disableDC3();
     PMU.disableDC4();
     PMU.disableDC5();
 
-    PMU.disableALDO1();
-    PMU.disableALDO2();
+    //PMU.disableALDO1();
+    //PMU.disableALDO2();
     PMU.disableALDO3();
     PMU.disableALDO4();
     PMU.disableBLDO1();
@@ -93,15 +92,49 @@ static esp_err_t pmu_configure_defaults()
 
     PMU.disableCPUSLDO();
     PMU.disableDLDO1();
-    PMU.disableDLDO2();*/
+    PMU.disableDLDO2();
 
-    // Board rails: set 3.3V where applicable
-    //PMU.setDC1Voltage(3300);
-    //PMU.enableDC1();
+    // ESP32s3 Core VDD
+    // PMU.setDC3Voltage(3300);
+    // PMU.enableDC3();
 
-    // Panel 3.3V rail on this board is ALDO2
-    //PMU.setALDO2Voltage(3300);
-    //PMU.enableALDO2();
+    // // Extern 3.3V VDD
+    // PMU.setDC1Voltage(3300);
+    // PMU.enableDC1();
+
+    // // CAM DVDD  1500~1800
+    // PMU.setALDO1Voltage(1800);
+    // // PMU.setALDO1Voltage(1500);
+    // PMU.enableALDO1();
+
+    // // CAM DVDD 2500~2800
+    // PMU.setALDO2Voltage(2800);
+    // PMU.enableALDO2();
+
+    // // CAM AVDD 2800~3000
+    // PMU.setALDO4Voltage(3000);
+    // PMU.enableALDO4();
+
+    // // PIR VDD 3300
+    // PMU.setALDO3Voltage(3300);
+    // PMU.enableALDO3();
+
+    // // OLED VDD 3300
+    // PMU.setBLDO1Voltage(3300);
+    // PMU.enableBLDO1();
+
+    // // MIC VDD 33000
+    // PMU.setBLDO2Voltage(3300);
+    // PMU.enableBLDO2();
+
+    /*PMU.setDC1Voltage(3300);
+    PMU.enableDC1();
+
+    PMU.setALDO1Voltage(3300);
+    PMU.enableALDO1();
+
+    PMU.setALDO2Voltage(3300);
+    PMU.enableALDO2();*/
 
     // Measurements
     PMU.clearIrqStatus();
@@ -116,7 +149,7 @@ static esp_err_t pmu_configure_defaults()
     PMU.enableGauge();
 
     // Disable TS pin measurement (if NTC not present)
-    //PMU.disableTSPinMeasure();
+    PMU.disableTSPinMeasure();
 
     // IRQ configuration
     PMU.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
@@ -248,6 +281,9 @@ static void pmu_monitor_task(void *arg)
     bool prev_charging = PMU.isCharging();
     uint8_t prev_chg_stat = PMU.getChargerStatus();
     for (;;) {
+
+        //pmu_isr_handler();
+
         bool vbus_in = PMU.isVbusIn();
         if (vbus_in != prev_vbus_in) {
             bsp_power_emit_evt(vbus_in ? BSP_POWER_EVT_VBUS_INSERT : BSP_POWER_EVT_VBUS_REMOVE);

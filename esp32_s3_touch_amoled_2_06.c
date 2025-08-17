@@ -93,6 +93,13 @@ esp_err_t bsp_i2c_init(void)
         .sda_io_num = BSP_I2C_SDA,
         .scl_io_num = BSP_I2C_SCL,
         .i2c_port = BSP_I2C_NUM,
+        .glitch_ignore_cnt = 7,
+        .intr_priority = 0,
+        .trans_queue_depth = 0,
+        .flags = {
+            .enable_internal_pullup = 1,
+            .allow_pd = 0
+        }
     };
     BSP_ERROR_CHECK_RETURN_ERR(i2c_new_master_bus(&i2c_bus_conf, &i2c_handle));
 
