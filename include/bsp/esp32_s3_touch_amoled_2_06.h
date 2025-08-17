@@ -2,6 +2,7 @@
 
 #include "sdkconfig.h"
 #include "driver/gpio.h"
+#include <stdint.h>
 #include "driver/i2c_master.h"
 #include "driver/sdmmc_host.h"
 #include "driver/i2s_std.h"
@@ -105,6 +106,38 @@ esp_err_t bsp_i2c_deinit(void);
  *
  */
 i2c_master_bus_handle_t bsp_i2c_get_handle(void);
+
+
+/**************************************************************************************************
+ *
+ * Power (AXP2101)
+ *
+ * Lightweight helpers to initialize and interact with the AXP2101 PMU.
+ * Implemented using XPowersLib; see bsp_power_* API below.
+ **************************************************************************************************/
+
+/** Initialize AXP2101 and configure default rails/measurements */
+esp_err_t bsp_power_init(void);
+
+/** Optional: invoke inside your PMU IRQ GPIO ISR handler */
+void bsp_power_isr_handler(void);
+
+/** Readouts */
+int   bsp_power_get_battery_percent(void);
+int   bsp_power_get_batt_voltage_mv(void);
+int   bsp_power_get_vbus_voltage_mv(void);
+int   bsp_power_get_system_voltage_mv(void);
+float bsp_power_get_temperature_c(void);
+bool  bsp_power_is_battery_connected(void);
+bool  bsp_power_is_charging(void);
+
+/** Minimal rail control used by this board */
+esp_err_t bsp_power_set_dc1_voltage_mv(uint16_t mv);
+esp_err_t bsp_power_enable_dc1(bool enable);
+esp_err_t bsp_power_set_aldo1_voltage_mv(uint16_t mv);
+esp_err_t bsp_power_enable_aldo1(bool enable);
+esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv);
+esp_err_t bsp_power_enable_aldo2(bool enable);
 
 
 /**************************************************************************************************

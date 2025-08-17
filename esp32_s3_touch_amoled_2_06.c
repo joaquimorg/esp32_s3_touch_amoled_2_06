@@ -405,6 +405,11 @@ esp_err_t bsp_display_sleep(void)
     lcd_cmd |= 0x02 << 24;
     esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, NULL, 0);
 
+    // If PMU present, gate panel 3.3V rail to fully power off
+    // This board powers the panel from AXP2101 ALDO2 at 3.3V.
+    // Ignore return value to keep this optional when PMU is not initialized.
+    (void)bsp_power_enable_aldo2(false);
+
     ESP_LOGI(TAG, "Panel sleep");
     return ESP_OK;
 }
@@ -416,6 +421,10 @@ esp_err_t bsp_display_wake(void)
         ESP_LOGE(TAG, "Panel handle is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
+
+    // If PMU present, re-enable panel rail before waking the display
+    (void)bsp_power_enable_aldo2(true);
+    vTaskDelay(pdMS_TO_TICKS(10));
 
     // Sleep out (0x11)
     uint32_t lcd_cmd = 0x11;
