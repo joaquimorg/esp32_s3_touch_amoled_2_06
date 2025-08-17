@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "esp_err.h"
 #include "driver/i2c_master.h"
+#include "esp_event.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
 
 #define XPOWERS_CHIP_AXP2101
@@ -15,6 +16,10 @@ static const char *TAG = "AXP2101";
 static XPowersPMU PMU;
 static i2c_master_dev_handle_t s_pmu_i2c_dev = nullptr;
 static bool s_pmu_ready = false;
+static TaskHandle_t s_pmu_mon_task = nullptr;
+static uint32_t s_pmu_poll_ms = 250;
+static bsp_power_event_cb_t s_evt_cb = nullptr;
+static void *s_evt_cb_user = nullptr;
 
 static esp_err_t pmu_i2c_dev_init()
 {
@@ -35,6 +40,10 @@ static esp_err_t pmu_i2c_dev_init()
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = AXP2101_SLAVE_ADDRESS,
         .scl_speed_hz = CONFIG_BSP_I2C_CLK_SPEED_HZ,
+        .scl_wait_us = 0,
+        .flags = {
+            .disable_ack_check = 0
+        }        
     };
     return i2c_master_bus_add_device(bus, &dev_cfg, &s_pmu_i2c_dev);
 }
@@ -96,19 +105,24 @@ static esp_err_t pmu_configure_defaults()
 
     // Measurements
     PMU.clearIrqStatus();
+    // Enable ADC main gate and individual channels
+    PMU.enableGeneralAdcChannel();
     PMU.enableVbusVoltageMeasure();
     PMU.enableBattVoltageMeasure();
     PMU.enableSystemVoltageMeasure();
     PMU.enableTemperatureMeasure();
+    // Ensure battery detection and fuel gauge are enabled for % and VBAT
+    PMU.enableBattDetection();
+    PMU.enableGauge();
 
     // Disable TS pin measurement (if NTC not present)
-    PMU.disableTSPinMeasure();
+    //PMU.disableTSPinMeasure();
 
     // IRQ configuration
     PMU.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
     PMU.clearIrqStatus();
     PMU.enableIRQ(
-        XPOWERS_AXP2101_BAT_INSERT_IRQ | XPOWERS_AXP2101_BAT_REMOVE_IRQ |
+        //XPOWERS_AXP2101_BAT_INSERT_IRQ | XPOWERS_AXP2101_BAT_REMOVE_IRQ |
         XPOWERS_AXP2101_VBUS_INSERT_IRQ | XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
         XPOWERS_AXP2101_PKEY_SHORT_IRQ | XPOWERS_AXP2101_PKEY_LONG_IRQ |
         XPOWERS_AXP2101_BAT_CHG_DONE_IRQ | XPOWERS_AXP2101_BAT_CHG_START_IRQ);
@@ -129,7 +143,10 @@ extern "C" esp_err_t bsp_power_init(void)
     if (PMU.begin(AXP2101_SLAVE_ADDRESS, pmu_register_read, pmu_register_write_byte)) {
         ESP_LOGI(TAG, "Init PMU SUCCESS!");
         s_pmu_ready = true;
-        return pmu_configure_defaults();
+        esp_err_t cfg = pmu_configure_defaults();
+        // Start background monitor when no IRQ pin is wired
+        bsp_power_start_monitor(250);
+        return cfg;
     }
     ESP_LOGE(TAG, "Init PMU FAILED!");
     return ESP_FAIL;
@@ -179,6 +196,7 @@ extern "C" int bsp_power_get_system_voltage_mv(void) { return s_pmu_ready ? PMU.
 extern "C" float bsp_power_get_temperature_c(void) { return s_pmu_ready ? PMU.getTemperature() : 0.0f; }
 extern "C" bool bsp_power_is_battery_connected(void) { return s_pmu_ready ? PMU.isBatteryConnect() : false; }
 extern "C" bool bsp_power_is_charging(void) { return s_pmu_ready ? PMU.isCharging() : false; }
+extern "C" bool bsp_power_is_vbus_in(void) { return s_pmu_ready ? PMU.isVbusIn() : false; }
 
 // Basic rail control for common rails used on this board
 extern "C" esp_err_t bsp_power_set_dc1_voltage_mv(uint16_t mv) { if (!s_pmu_ready) return ESP_ERR_INVALID_STATE; PMU.setDC1Voltage(mv); return ESP_OK; }
@@ -187,3 +205,94 @@ extern "C" esp_err_t bsp_power_set_aldo1_voltage_mv(uint16_t mv) { if (!s_pmu_re
 extern "C" esp_err_t bsp_power_enable_aldo1(bool enable) { if (!s_pmu_ready) return ESP_ERR_INVALID_STATE; if (enable) PMU.enableALDO1(); else PMU.disableALDO1(); return ESP_OK; }
 extern "C" esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv) { if (!s_pmu_ready) return ESP_ERR_INVALID_STATE; PMU.setALDO2Voltage(mv); return ESP_OK; }
 extern "C" esp_err_t bsp_power_enable_aldo2(bool enable) { if (!s_pmu_ready) return ESP_ERR_INVALID_STATE; if (enable) PMU.enableALDO2(); else PMU.disableALDO2(); return ESP_OK; }
+
+extern "C" bool bsp_power_poll_pwr_button_short(void)
+{
+    if (!s_pmu_ready) {
+        return false;
+    }
+    // Read IRQ status, check for short press, then clear for next time
+    PMU.getIrqStatus();
+    bool pressed = PMU.isPekeyShortPressIrq();
+    if (pressed) {
+        PMU.clearIrqStatus();
+    }
+    return pressed;
+}
+
+static void bsp_power_emit_evt(bsp_power_event_t evt)
+{
+    if (s_evt_cb) {
+        s_evt_cb(evt, s_evt_cb_user);
+    }
+    bsp_power_event_payload_t pl = {
+        .battery_percent = PMU.getBatteryPercent(),
+        .charging = PMU.isCharging(),
+        .vbus_in = PMU.isVbusIn(),
+        .charger_status = PMU.getChargerStatus(),
+    };
+    // Ignore error if event loop not created yet; caller can create default.
+    (void)esp_event_post(BSP_POWER_EVENT_BASE, evt, &pl, sizeof(pl), 0);
+    switch (evt) {
+        case BSP_POWER_EVT_VBUS_INSERT: ESP_LOGI(TAG, "VBUS inserted"); break;
+        case BSP_POWER_EVT_VBUS_REMOVE: ESP_LOGI(TAG, "VBUS removed"); break;
+        case BSP_POWER_EVT_CHG_START:   ESP_LOGI(TAG, "Charge started"); break;
+        case BSP_POWER_EVT_CHG_DONE:    ESP_LOGI(TAG, "Charge done"); break;
+        default: break;
+    }
+}
+
+static void pmu_monitor_task(void *arg)
+{
+    bool prev_vbus_in = PMU.isVbusIn();
+    bool prev_charging = PMU.isCharging();
+    uint8_t prev_chg_stat = PMU.getChargerStatus();
+    for (;;) {
+        bool vbus_in = PMU.isVbusIn();
+        if (vbus_in != prev_vbus_in) {
+            bsp_power_emit_evt(vbus_in ? BSP_POWER_EVT_VBUS_INSERT : BSP_POWER_EVT_VBUS_REMOVE);
+            prev_vbus_in = vbus_in;
+        }
+
+        uint8_t chg_stat = PMU.getChargerStatus();
+        bool charging = PMU.isCharging();
+
+        if (!prev_charging && charging) {
+            bsp_power_emit_evt(BSP_POWER_EVT_CHG_START);
+        } else if (prev_charging && !charging) {
+            if (chg_stat == XPOWERS_AXP2101_CHG_DONE_STATE) {
+                bsp_power_emit_evt(BSP_POWER_EVT_CHG_DONE);
+            }
+        } else if (chg_stat != prev_chg_stat) {
+            if (chg_stat == XPOWERS_AXP2101_CHG_DONE_STATE) {
+                bsp_power_emit_evt(BSP_POWER_EVT_CHG_DONE);
+            } else if (prev_chg_stat == XPOWERS_AXP2101_CHG_STOP_STATE && charging) {
+                bsp_power_emit_evt(BSP_POWER_EVT_CHG_START);
+            }
+        }
+        prev_charging = charging;
+        prev_chg_stat = chg_stat;
+
+        vTaskDelay(pdMS_TO_TICKS(s_pmu_poll_ms));
+    }
+}
+
+extern "C" void bsp_power_register_event_cb(bsp_power_event_cb_t cb, void *user_ctx)
+{
+    s_evt_cb = cb;
+    s_evt_cb_user = user_ctx;
+}
+
+extern "C" void bsp_power_start_monitor(uint32_t poll_ms)
+{
+    if (!s_pmu_ready) {
+        return;
+    }
+    if (s_pmu_mon_task) {
+        // Already running, update period if needed
+        s_pmu_poll_ms = (poll_ms > 0) ? poll_ms : s_pmu_poll_ms;
+        return;
+    }
+    s_pmu_poll_ms = (poll_ms > 0) ? poll_ms : s_pmu_poll_ms;
+    xTaskCreate(pmu_monitor_task, "pmu_mon", 3072, nullptr, 5, &s_pmu_mon_task);
+}

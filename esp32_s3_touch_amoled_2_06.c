@@ -17,11 +17,15 @@
 
 #include "esp_codec_dev_defaults.h"
 #include "bsp/esp32_s3_touch_amoled_2_06.h"
+#include "esp_event.h"
 #include "bsp_err_check.h"
 #include "bsp/display.h"
 #include "bsp/touch.h"
 
 static const char *TAG = "ESP32-S3-Touch-AMOLED-2.06";
+
+// Define BSP power event base declared in public header
+ESP_EVENT_DEFINE_BASE(BSP_POWER_EVENT_BASE);
 
 static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
@@ -408,7 +412,7 @@ esp_err_t bsp_display_sleep(void)
     // If PMU present, gate panel 3.3V rail to fully power off
     // This board powers the panel from AXP2101 ALDO2 at 3.3V.
     // Ignore return value to keep this optional when PMU is not initialized.
-    (void)bsp_power_enable_aldo2(false);
+    //(void)bsp_power_enable_aldo2(false);
 
     ESP_LOGI(TAG, "Panel sleep");
     return ESP_OK;
@@ -423,7 +427,7 @@ esp_err_t bsp_display_wake(void)
     }
 
     // If PMU present, re-enable panel rail before waking the display
-    (void)bsp_power_enable_aldo2(true);
+    //(void)bsp_power_enable_aldo2(true);
     vTaskDelay(pdMS_TO_TICKS(10));
 
     // Sleep out (0x11)

@@ -9,6 +9,7 @@
 #include "bsp/config.h"
 #include "bsp/display.h"
 #include "esp_codec_dev.h"
+#include "esp_event.h"
 
 
 #include "lvgl.h"
@@ -130,6 +131,7 @@ int   bsp_power_get_system_voltage_mv(void);
 float bsp_power_get_temperature_c(void);
 bool  bsp_power_is_battery_connected(void);
 bool  bsp_power_is_charging(void);
+bool  bsp_power_is_vbus_in(void);
 
 /** Minimal rail control used by this board */
 esp_err_t bsp_power_set_dc1_voltage_mv(uint16_t mv);
@@ -138,6 +140,49 @@ esp_err_t bsp_power_set_aldo1_voltage_mv(uint16_t mv);
 esp_err_t bsp_power_enable_aldo1(bool enable);
 esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv);
 esp_err_t bsp_power_enable_aldo2(bool enable);
+
+/**
+ * @brief Poll for a short press of the PMU power button (AXP2101 PWR key)
+ *
+ * Checks and clears the PMU IRQ status internally.
+ * Returns true exactly once per detected short-press event.
+ */
+bool bsp_power_poll_pwr_button_short(void);
+
+/** Power event types reported by the PMU monitor */
+typedef enum {
+    BSP_POWER_EVT_VBUS_INSERT,
+    BSP_POWER_EVT_VBUS_REMOVE,
+    BSP_POWER_EVT_CHG_START,
+    BSP_POWER_EVT_CHG_DONE,
+} bsp_power_event_t;
+
+typedef void (*bsp_power_event_cb_t)(bsp_power_event_t event, void *user_ctx);
+
+/**
+ * @brief Register a callback to receive PMU events (VBUS/charge)
+ */
+void bsp_power_register_event_cb(bsp_power_event_cb_t cb, void *user_ctx);
+
+/**
+ * @brief Start background polling of PMU to detect VBUS and charge events.
+ *        Use when no PMU IRQ pin is wired. Safe to call repeatedly.
+ * @param poll_ms Polling period in milliseconds (e.g., 200-500ms)
+ */
+void bsp_power_start_monitor(uint32_t poll_ms);
+
+/**
+ * ESP-IDF event base for BSP power events.
+ * Handlers can register to receive bsp_power_event_t IDs with payload below.
+ */
+ESP_EVENT_DECLARE_BASE(BSP_POWER_EVENT_BASE);
+
+typedef struct {
+    int  battery_percent;
+    bool charging;
+    bool vbus_in;
+    uint8_t charger_status; // XPOWERS_AXP2101_CHG_* enum value
+} bsp_power_event_payload_t;
 
 
 /**************************************************************************************************
