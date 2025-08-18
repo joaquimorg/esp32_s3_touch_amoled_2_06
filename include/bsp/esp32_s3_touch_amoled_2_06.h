@@ -44,6 +44,8 @@
 #define BSP_I2S_DSIN          (GPIO_NUM_42)
 #define BSP_POWER_AMP_IO      (GPIO_NUM_46)
 
+#define I2C_MASTER_TIMEOUT_MS  1000
+
 /* Display */
 #define BSP_LCD_CS        (GPIO_NUM_12)
 #define BSP_LCD_PCLK      (GPIO_NUM_11)
