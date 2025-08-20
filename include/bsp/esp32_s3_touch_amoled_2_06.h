@@ -323,7 +323,7 @@ esp_err_t bsp_sdcard_unmount(void);
 
 #if (BSP_CONFIG_NO_GRAPHIC_LIB == 0)
 #define BSP_LCD_DRAW_BUFF_SIZE     (BSP_LCD_H_RES * CONFIG_BSP_LCD_RGB_BOUNCE_BUFFER_HEIGHT)
-#define BSP_LCD_DRAW_BUFF_DOUBLE   (0)
+#define BSP_LCD_DRAW_BUFF_DOUBLE   (1)
 
 /**
  * @brief BSP display configuration structure
