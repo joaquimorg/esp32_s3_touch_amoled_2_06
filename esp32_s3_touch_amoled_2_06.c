@@ -674,6 +674,7 @@ lv_display_t *bsp_display_start(void)
             .buff_dma = false,
             .buff_spiram = true,
         }};
+    //cfg.lvgl_port_cfg.task_stack = 16384; // 16K stack for LVGL task
     return bsp_display_start_with_config(&cfg);
 }
 
