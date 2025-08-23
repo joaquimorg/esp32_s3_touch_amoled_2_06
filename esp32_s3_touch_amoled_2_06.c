@@ -22,6 +22,7 @@
 #include "bsp/display.h"
 #include "bsp/touch.h"
 
+
 static const char *TAG = "ESP32-S3-Touch-AMOLED-2.06";
 
 // Define BSP power event base declared in public header
@@ -502,8 +503,9 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
 
     // Use a mutable IO config so we can tune the SPI transaction queue depth
     esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
-    // Use a moderate queue depth; too large can exhaust DMA descriptors and cause queue failures
-    io_config.trans_queue_depth = 10;
+    // Tune SPI transaction queue depth; increase to improve flush robustness
+    // when many segments are queued during large screen updates
+    io_config.trans_queue_depth = 32;
 
     sh8601_vendor_config_t vendor_config = {
         .init_cmds = lcd_init_cmds,
