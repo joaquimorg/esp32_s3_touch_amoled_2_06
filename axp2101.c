@@ -282,5 +282,5 @@ void bsp_power_start_monitor(uint32_t ms)
     if (!s_ready) return;
     if (ms) s_poll_ms = ms;
     if (s_mon_task) return;
-    xTaskCreate(pmu_mon_task, "pmu_mon", 3072, NULL, 5, &s_mon_task);
+    xTaskCreate(pmu_mon_task, "pmu_mon", 3072, NULL, 4, &s_mon_task);
 }

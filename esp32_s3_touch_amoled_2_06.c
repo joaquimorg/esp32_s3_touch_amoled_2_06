@@ -505,7 +505,8 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
     esp_lcd_panel_io_spi_config_t io_config = SH8601_PANEL_IO_QSPI_CONFIG(BSP_LCD_CS, NULL, NULL);
     // Tune SPI transaction queue depth; increase to improve flush robustness
     // when many segments are queued during large screen updates
-    io_config.trans_queue_depth = 32;
+    //io_config.trans_queue_depth = 10;
+    //io_config.pclk_hz = 80 * 1000 * 1000;  // Reduce frequency if needed
 
     sh8601_vendor_config_t vendor_config = {
         .init_cmds = lcd_init_cmds,
@@ -670,15 +671,15 @@ lv_display_t *bsp_display_start(void)
 {
     const lvgl_port_cfg_t cfg_port = {
         .task_priority     = 4,             // increase priority
-        .task_stack        = 12 * 1024,     // increase stack
-        .task_affinity     = -1,            // pin to core -1 (any core)
-        .timer_period_ms   = 30,            // LVGL tick period (lower = smoother, more CPU)        
+        .task_stack        = 20 * 1024,     // increase stack
+        .task_affinity     = 1,            // pin to core -1 (any core)
+        .timer_period_ms   = 15,            // LVGL tick period (lower = smoother, more CPU)        
     };
 
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = cfg_port,
         .buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT,
-        .double_buffer = true,
+        .double_buffer = false,
         .flags = {
             .buff_dma = false,
             .buff_spiram = true,
