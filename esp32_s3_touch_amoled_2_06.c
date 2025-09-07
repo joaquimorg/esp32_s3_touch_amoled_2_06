@@ -671,9 +671,9 @@ lv_display_t *bsp_display_start(void)
 {
     const lvgl_port_cfg_t cfg_port = {
         .task_priority     = 3,             // increase priority
-        .task_stack        = 20 * 1024,     // increase stack
+        .task_stack        = 30 * 1024,     // increase stack
         .task_affinity     = -1,            // pin to core -1 (any core)
-        .timer_period_ms   = 30,            // LVGL tick period (lower = smoother, more CPU)        
+        .timer_period_ms   = 20,            // LVGL tick period (lower = smoother, more CPU)        
     };
 
     bsp_display_cfg_t cfg = {
