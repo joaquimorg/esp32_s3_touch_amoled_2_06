@@ -679,10 +679,10 @@ lv_display_t *bsp_display_start(void)
     bsp_display_cfg_t cfg = {
         .lvgl_port_cfg = cfg_port,
         .buffer_size = BSP_LCD_H_RES * LVGL_BUFFER_HEIGHT,
-        .double_buffer = false,
+        .double_buffer = true,
         .flags = {
-            .buff_dma = false,
-            .buff_spiram = true,
+            .buff_dma = true,
+            .buff_spiram = false,
         }};
     
     return bsp_display_start_with_config(&cfg);
