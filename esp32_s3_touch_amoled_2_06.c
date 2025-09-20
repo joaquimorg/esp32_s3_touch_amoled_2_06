@@ -12,6 +12,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include <string.h>
+
 #include "esp_lcd_sh8601.h"
 #include "esp_lcd_touch_ft5x06.h"
 
@@ -27,6 +29,47 @@ static const char *TAG = "ESP32-S3-Touch-AMOLED-2.06";
 
 // Define BSP power event base declared in public header
 ESP_EVENT_DEFINE_BASE(BSP_POWER_EVENT_BASE);
+
+#define PANEL_CLEAR_CHUNK_LINES 8
+
+static bool s_panel_power_gated = false;
+
+static bool bsp_display_set_aldo_state(bool enable)
+{
+    const char *action = enable ? "enable" : "disable";
+    bool any_success = false;
+    esp_err_t err;
+
+    err = bsp_power_enable_aldo1(enable);
+    if (err == ESP_OK) {
+        any_success = true;
+    } else if (err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Failed to %s ALDO1: %s", action, esp_err_to_name(err));
+    }
+
+    err = bsp_power_enable_aldo2(enable);
+    if (err == ESP_OK) {
+        any_success = true;
+    } else if (err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Failed to %s ALDO2: %s", action, esp_err_to_name(err));
+    }
+
+    err = bsp_power_enable_aldo3(enable);
+    if (err == ESP_OK) {
+        any_success = true;
+    } else if (err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Failed to %s ALDO3: %s", action, esp_err_to_name(err));
+    }
+
+    err = bsp_power_enable_aldo4(enable);
+    if (err == ESP_OK) {
+        any_success = true;
+    } else if (err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGW(TAG, "Failed to %s ALDO4: %s", action, esp_err_to_name(err));
+    }
+
+    return any_success;
+}
 
 static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
@@ -399,6 +442,30 @@ esp_err_t bsp_display_backlight_on(void)
     return bsp_display_brightness_set(100);
 }
 
+esp_err_t bsp_display_clear_black(void)
+{
+    if (panel_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    static uint16_t black_chunk[BSP_LCD_H_RES * PANEL_CLEAR_CHUNK_LINES];
+    static bool black_init = false;
+    if (!black_init) {
+        memset(black_chunk, 0, sizeof(black_chunk));
+        black_init = true;
+    }
+
+    for (int y = 0; y < BSP_LCD_V_RES; y += PANEL_CLEAR_CHUNK_LINES) {
+        int y_end = y + PANEL_CLEAR_CHUNK_LINES;
+        if (y_end > BSP_LCD_V_RES) {
+            y_end = BSP_LCD_V_RES;
+        }
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_draw_bitmap(panel_handle, 0, y, BSP_LCD_H_RES, y_end, black_chunk), TAG, "panel clear");
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t bsp_display_sleep(void)
 {
     if (panel_handle == NULL || io_handle == NULL)
@@ -417,10 +484,9 @@ esp_err_t bsp_display_sleep(void)
     lcd_cmd |= 0x02 << 24;
     esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, NULL, 0);
 
-    // If PMU present, gate panel 3.3V rail to fully power off
-    // This board powers the panel from AXP2101 ALDO2 at 3.3V.
-    // Ignore return value to keep this optional when PMU is not initialized.
-    //(void)bsp_power_enable_aldo2(false);
+    // If PMU present, gate panel rails to fully power off
+    vTaskDelay(pdMS_TO_TICKS(5));
+    s_panel_power_gated = bsp_display_set_aldo_state(false);
 
     ESP_LOGI(TAG, "Panel sleep");
     return ESP_OK;
@@ -434,9 +500,35 @@ esp_err_t bsp_display_wake(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    // If PMU present, re-enable panel rail before waking the display
-    //(void)bsp_power_enable_aldo2(true);
-    vTaskDelay(pdMS_TO_TICKS(10));
+    // If PMU present, re-enable panel rails before waking the display
+    bool was_gated = s_panel_power_gated;
+    bool rails_enabled = bsp_display_set_aldo_state(true);
+    if (rails_enabled) {
+        s_panel_power_gated = false;
+    } else if (was_gated) {
+        ESP_LOGW(TAG, "Failed to re-enable ALDO rails after gating");
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+
+    if (was_gated && rails_enabled) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel_handle), TAG, "panel reset");
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel_handle), TAG, "panel init");
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_set_gap(panel_handle, 0x16, 0), TAG, "panel gap");
+        ESP_RETURN_ON_ERROR(esp_lcd_panel_disp_on_off(panel_handle, true), TAG, "panel on");
+        esp_err_t clr_err = bsp_display_clear_black();
+        if (clr_err != ESP_OK) {
+            ESP_LOGW(TAG, "Panel clear after reinit failed: %s", esp_err_to_name(clr_err));
+        }
+        ESP_LOGI(TAG, "Panel wake (reinit)");
+        return ESP_OK;
+    }
+
+    if (!panel_handle || !io_handle)
+    {
+        ESP_LOGE(TAG, "Panel handle is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
 
     // Sleep out (0x11)
     uint32_t lcd_cmd = 0x11;

@@ -96,6 +96,18 @@ static uint8_t pmu_read_u8(uint8_t reg)
     return v;
 }
 
+static esp_err_t pmu_set_aldo_state(uint8_t bit, bool enable)
+{
+    if (!s_ready || !s_pmu_dev) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t mask = (uint8_t)(1u << bit);
+    if (enable) {
+        return axp2101_set_bits(s_pmu_dev, AXP2101_REG_LDO_ONOFF_CTRL0, mask);
+    }
+    return axp2101_clear_bits(s_pmu_dev, AXP2101_REG_LDO_ONOFF_CTRL0, mask);
+}
+
 static void pmu_emit_evt(bsp_power_event_t evt)
 {
     if (!s_ready) return;
@@ -231,7 +243,7 @@ esp_err_t bsp_power_set_aldo1_voltage_mv(uint16_t mv)
 
 esp_err_t bsp_power_enable_aldo1(bool enable)
 {
-    return s_ready ? ESP_OK : ESP_ERR_INVALID_STATE;
+    return pmu_set_aldo_state(0, enable);
 }
 
 esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv)
@@ -241,7 +253,17 @@ esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv)
 
 esp_err_t bsp_power_enable_aldo2(bool enable)
 {
-    return s_ready ? ESP_OK : ESP_ERR_INVALID_STATE;
+    return pmu_set_aldo_state(1, enable);
+}
+
+esp_err_t bsp_power_enable_aldo3(bool enable)
+{
+    return pmu_set_aldo_state(2, enable);
+}
+
+esp_err_t bsp_power_enable_aldo4(bool enable)
+{
+    return pmu_set_aldo_state(3, enable);
 }
 
 bool bsp_power_poll_pwr_button_short(void)

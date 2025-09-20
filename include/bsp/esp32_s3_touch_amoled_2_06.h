@@ -142,6 +142,8 @@ esp_err_t bsp_power_set_aldo1_voltage_mv(uint16_t mv);
 esp_err_t bsp_power_enable_aldo1(bool enable);
 esp_err_t bsp_power_set_aldo2_voltage_mv(uint16_t mv);
 esp_err_t bsp_power_enable_aldo2(bool enable);
+esp_err_t bsp_power_enable_aldo3(bool enable);
+esp_err_t bsp_power_enable_aldo4(bool enable);
 
 /**
  * @brief Poll for a short press of the PMU power button (AXP2101 PWR key)

@@ -106,6 +106,7 @@ esp_err_t bsp_display_backlight_on(void);
  *      - ESP_ERR_INVALID_ARG   Parameter error
  */
 esp_err_t bsp_display_backlight_off(void);
+esp_err_t bsp_display_clear_black(void);
 
 /**
  * @brief Put display panel into sleep and turn display off
